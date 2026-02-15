@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Edge Scanner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body{font-family:Arial;background:#f2f2f2;text-align:center}
+video,canvas{width:95%;max-width:420px;border-radius:10px}
+button{
+  padding:10px 14px;margin:5px;font-size:15px;
+  border:none;border-radius:8px;background:#0a7cff;color:#fff
+}
+.thumb{width:70px;margin:4px;border:2px solid #ccc}
+input[type=range]{width:80%}
+</style>
+</head>
+<body>
+
+<h3>📷 Edge Document Scanner</h3>
+
+<video id="video" autoplay></video><br>
+
+<button onclick="capture()">📸 Scan</button>
+<button onclick="edgeDetect()">📐 Edge</button>
+<button onclick="bw()">⚫ B/W</button>
+<button onclick="rotate()">🔄 Rotate</button>
+<button onclick="addPage()">➕ Add Page</button>
+
+<br>Brightness
+<input type="range" min="-80" max="80" value="0" oninput="brightness(this.value)">
+
+<canvas id="canvas"></canvas>
+<div id="pages"></div>
+
+<button onclick="makePDF()">📄 Download PDF</button>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<script>
+const video=document.getElementById("video");
+const canvas=document.getElementById("canvas");
+const ctx=canvas.getContext("2d");
+const pagesDiv=document.getElementById("pages");
+let pages=[], baseImg=null;
+let sx,sy,drag=false;
+
+navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}})
+.then(s=>video.srcObject=s);
+
+function capture(){
+  canvas.width=video.videoWidth;
+  canvas.height=video.videoHeight;
+  ctx.drawImage(video,0,0);
+  baseImg=ctx.getImageData(0,0,canvas.width,canvas.height);
+}
+
+function edgeDetect(){
+  let img=ctx.getImageData(0,0,canvas.width,canvas.height);
+  let w=img.width,h=img.height;
+  let d=img.data;
+  let out=new Uint8ClampedArray(d.length);
+
+  let gx=[-1,0,1,-2,0,2,-1,0,1];
+  let gy=[-1,-2,-1,0,0,0,1,2,1];
+
+  for(let y=1;y<h-1;y++){
+    for(let x=1;x<w-1;x++){
+      let sx=0,sy=0;
+      let k=0;
+      for(let j=-1;j<=1;j++){
+        for(let i=-1;i<=1;i++){
+          let p=((y+j)*w+(x+i))*4;
+          let g=(d[p]+d[p+1]+d[p+2])/3;
+          sx+=g*gx[k];
+          sy+=g*gy[k];
+          k++;
+        }
+      }
+      let mag=Math.sqrt(sx*sx+sy*sy);
+      let o=(y*w+x)*4;
+      let v=mag>120?0:255;
+      out[o]=out[o+1]=out[o+2]=v;
+      out[o+3]=255;
+    }
+  }
+  ctx.putImageData(new ImageData(out,w,h),0,0);
+}
+
+function bw(){
+  let img=ctx.getImageData(0,0,canvas.width,canvas.height);
+  for(let i=0;i<img.data.length;i+=4){
+    let g=img.data[i]*0.3+img.data[i+1]*0.59+img.data[i+2]*0.11;
+    g=g>140?255:0;
+    img.data[i]=img.data[i+1]=img.data[i+2]=g;
+  }
+  ctx.putImageData(img,0,0);
+}
+
+function brightness(v){
+  if(!baseImg)return;
+  let img=new ImageData(
+    new Uint8ClampedArray(baseImg.data),
+    baseImg.width,baseImg.height
+  );
+  for(let i=0;i<img.data.length;i+=4){
+    img.data[i]+=+v;
+    img.data[i+1]+=+v;
+    img.data[i+2]+=+v;
+  }
+  ctx.putImageData(img,0,0);
+}
+
+function rotate(){
+  let t=document.createElement("canvas");
+  t.width=canvas.height;
+  t.height=canvas.width;
+  let tc=t.getContext("2d");
+  tc.translate(t.width/2,t.height/2);
+  tc.rotate(Math.PI/2);
+  tc.drawImage(canvas,-canvas.width/2,-canvas.height/2);
+  canvas.width=t.width; canvas.height=t.height;
+  ctx.drawImage(t,0,0);
+  baseImg=ctx.getImageData(0,0,canvas.width,canvas.height);
+}
+
+// manual crop
+canvas.addEventListener("mousedown",e=>{
+  sx=e.offsetX; sy=e.offsetY; drag=true;
+});
+canvas.addEventListener("mouseup",e=>{
+  if(!drag)return; drag=false;
+  let w=e.offsetX-sx, h=e.offsetY-sy;
+  let img=ctx.getImageData(sx,sy,w,h);
+  canvas.width=w; canvas.height=h;
+  ctx.putImageData(img,0,0);
+  baseImg=ctx.getImageData(0,0,canvas.width,canvas.height);
+});
+
+function addPage(){
+  let img=canvas.toDataURL("image/jpeg",1);
+  pages.push(img);
+  let t=document.createElement("img");
+  t.src=img; t.className="thumb";
+  pagesDiv.appendChild(t);
+}
+
+function makePDF(){
+  if(pages.length==0)return alert("कोई page नहीं");
+  const {jsPDF}=window.jspdf;
+  let pdf=new jsPDF();
+  pages.forEach((p,i)=>{
+    if(i>0)pdf.addPage();
+    pdf.addImage(p,"JPEG",10,10,190,0);
+  });
+  pdf.save("EdgeScan.pdf");
+}
+</script>
+
+</body>
+</html>
